@@ -19,13 +19,13 @@ ThinPrompt does not summarize unique code or system instructions. Its optimizati
 
 ## Quick start
 
+After cloning the repository, start ThinPrompt with one command:
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[test]'
-cp .env.example .env
-uvicorn proxy.app:app --host 127.0.0.1 --port 8080 --env-file .env
+./start.sh
 ```
+
+On the first run, the script creates the virtual environment, installs dependencies, and creates `.env` from `.env.example`. Edit `.env` if you need a different upstream URL or proxy port, then run `./start.sh` again.
 
 The local LLM server should be running before ThinPrompt starts. By default, the example configuration expects it at `http://127.0.0.1:2020`.
 
