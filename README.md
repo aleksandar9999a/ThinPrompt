@@ -1,8 +1,23 @@
-# LLM Request Proxy
+# ThinPrompt
 
-Model-agnostic proxy between VS Code and an upstream HTTP API. It performs only deterministic request optimization, then forwards the request and response without selecting or understanding models.
+ThinPrompt is a model-agnostic proxy between VS Code and a local LLM server. It reduces request size while preserving the original API format and tool-calling workflow.
 
-## Run
+```text
+VS Code -> ThinPrompt -> Local LLM server
+```
+
+## What it does
+
+- compacts verbose tool descriptions and schemas;
+- loads tool schemas dynamically, only when the model requests them;
+- removes duplicate messages and repeated context blocks;
+- normalizes redundant whitespace and line endings;
+- forwards responses, including streaming responses, to VS Code;
+- does not select, manage, or depend on a specific model provider.
+
+ThinPrompt does not summarize unique code or system instructions. Its optimizations are deterministic and designed to preserve request meaning.
+
+## Quick start
 
 ```bash
 python -m venv .venv
@@ -12,28 +27,47 @@ cp .env.example .env
 uvicorn proxy.app:app --host 127.0.0.1 --port 8080 --env-file .env
 ```
 
-Set `UPSTREAM_URL` to the base URL of the upstream server. The proxy accepts `/v1/*` routes and forwards them to the same path. An optional `UPSTREAM_API_KEY` replaces the incoming `Authorization` header.
+The local LLM server should be running before ThinPrompt starts. By default, the example configuration expects it at `http://127.0.0.1:2020`.
 
-To print the original and optimized JSON request in the terminal, set `PROXY_LOG_REQUESTS=true`. The local `.env` enables this temporarily. The output includes byte counts and redacts the `Authorization` header, but request bodies may still contain source code or other sensitive content.
+## VS Code configuration
 
-## Supported behavior
+Configure the VS Code AI extension to use ThinPrompt as an OpenAI-compatible endpoint:
 
-- preserves the request format and all fields;
-- normalizes redundant line endings and trailing whitespace;
-- removes duplicate messages and repeated content blocks, including whitespace-only variations;
-- optimizes both `messages` and `input` request shapes;
-- forwards non-chat routes transparently;
-- supports normal and SSE streaming responses;
-- does not know model names, context windows, token budgets, or providers.
+```text
+Base URL: http://127.0.0.1:8080/v1
+```
 
-When `PROXY_DYNAMIC_TOOLS=true`, the proxy replaces the full incoming tool list with a short catalog and one internal `get_tool` function. If the upstream requests a tool schema, the proxy resolves it internally and retries the request with only that schema. Dynamic-tool requests are buffered while this decision is made, so their final response is returned after the upstream response is complete.
+ThinPrompt then forwards requests to the upstream URL configured in `.env`.
 
-The optimizer is intentionally deterministic and model-agnostic. It cannot safely remove unique system instructions or source code. If almost all tokens are unique VS Code context, a large reduction requires a context-selection policy or summarization step, which would be a separate, non-transparent feature.
+## Configuration
 
-## Example
+```env
+UPSTREAM_URL=http://127.0.0.1:2020
+UPSTREAM_API_KEY=
+PROXY_HOST=127.0.0.1
+PROXY_PORT=8080
+PROXY_LOG_REQUESTS=false
+PROXY_COMPACT_TOOLS=true
+PROXY_DYNAMIC_TOOLS=true
+```
+
+Set `PROXY_LOG_REQUESTS=true` temporarily to print the original and optimized request sizes and bodies. Request bodies may contain source code or other sensitive content, so logging should normally remain disabled.
+
+## Dynamic tools
+
+When `PROXY_DYNAMIC_TOOLS=true`, ThinPrompt receives the complete tool list from VS Code but initially sends the model only:
+
+- a short catalog of available tools;
+- an internal `get_tool` function.
+
+When the model requests a tool schema, ThinPrompt resolves it locally and retries the request with only that tool's full schema. The internal `get_tool` call is never exposed to VS Code. This can significantly reduce the prompt size while keeping real tool calls compatible with VS Code.
+
+## Development
+
+Run the test suite with:
 
 ```bash
-curl http://127.0.0.1:8080/v1/chat/completions \
-  -H 'content-type: application/json' \
-  -d '{"model":"local-model","messages":[{"role":"user","content":"hello"}]}'
+.venv/bin/pytest -q
 ```
+
+The proxy is implemented in `proxy/`, with optimization logic in `proxy/optimizer.py` and HTTP forwarding in `proxy/app.py`.
