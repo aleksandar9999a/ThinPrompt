@@ -77,7 +77,7 @@ def test_dynamic_tools_sends_catalog_and_requested_schema_only():
     result, registry = prepare_dynamic_tools(payload)
 
     assert set(registry) == {"read_file", "run_terminal"}
-    assert [tool["function"]["name"] for tool in result["tools"]] == ["get_tool"]
+    assert [tool["function"]["name"] for tool in result["tools"]] == ["get_tools"]
     assert "read_file: Read a file." in result["messages"][0]["content"]
 
 

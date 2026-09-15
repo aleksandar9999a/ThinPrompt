@@ -70,8 +70,8 @@ async def stream_response(response: httpx.Response) -> AsyncIterator[bytes]:
     await response.aclose()
 
 
-def extract_tool_call(response_body: bytes, content_type: str) -> tuple[dict[str, Any], str] | None:
-    """Extract a get_tool call from JSON or buffered SSE without exposing it to VS Code."""
+def extract_tool_call(response_body: bytes, content_type: str) -> tuple[dict[str, Any], list[str]] | None:
+    """Extract a get_tools call from JSON or buffered SSE without exposing it to VS Code."""
     chunks = []
     if "text/event-stream" in content_type:
         for line in response_body.decode("utf-8", errors="replace").splitlines():
@@ -86,9 +86,8 @@ def extract_tool_call(response_body: bytes, content_type: str) -> tuple[dict[str
         except json.JSONDecodeError:
             return None
 
-    name = None
-    arguments = ""
-    call_id = "dynamic-tool-call"
+    calls_by_id: dict[str, dict[str, str]] = {}
+    call_order: list[str] = []
     assistant_message: dict[str, Any] = {"role": "assistant", "tool_calls": []}
     for chunk in chunks:
         choices = chunk.get("choices", [])
@@ -98,23 +97,31 @@ def extract_tool_call(response_body: bytes, content_type: str) -> tuple[dict[str
         message = choice.get("message", {})
         delta = choice.get("delta", {})
         calls = message.get("tool_calls", []) or delta.get("tool_calls", [])
-        for call in calls:
+        for index, call in enumerate(calls):
             function = call.get("function", {})
-            name = function.get("name", name)
-            arguments += function.get("arguments", "")
-            call_id = call.get("id", call_id)
-    if name != "get_tool":
+            call_id = call.get("id") or (call_order[index] if index < len(call_order) else f"dynamic-tools-call-{index}")
+            if call_id not in calls_by_id:
+                call_order.append(call_id)
+            current = calls_by_id.setdefault(call_id, {"name": "", "arguments": ""})
+            current["name"] = function.get("name", current["name"])
+            current["arguments"] += function.get("arguments", "")
+    get_tools_calls = [call for call in calls_by_id.values() if call["name"] == "get_tools"]
+    if len(get_tools_calls) != 1:
         return None
     try:
-        parsed_arguments = json.loads(arguments)
+        parsed_arguments = json.loads(get_tools_calls[0]["arguments"])
     except json.JSONDecodeError:
         return None
+    requested_names = parsed_arguments.get("tool_names")
+    if not isinstance(requested_names, list) or not all(isinstance(name, str) for name in requested_names):
+        return None
+    call_id = next(call_id for call_id in call_order if calls_by_id[call_id] is get_tools_calls[0])
     assistant_message["tool_calls"] = [{
         "id": call_id,
         "type": "function",
-        "function": {"name": name, "arguments": json.dumps(parsed_arguments)},
+        "function": {"name": "get_tools", "arguments": json.dumps({"tool_names": requested_names})},
     }]
-    return assistant_message, parsed_arguments.get("tool_name", "")
+    return assistant_message, requested_names
 
 
 async def send_upstream(request: Request, path: str, headers: dict[str, str], body: bytes) -> httpx.Response:
@@ -175,22 +182,18 @@ async def proxy(request: Request, path: str) -> Any:
                 extracted = extract_tool_call(response_body, response_content_type)
                 if not extracted:
                     break
-                assistant_message, requested_name = extracted
-                requested_tool = dynamic_registry.get(requested_name)
-                if requested_tool is None:
+                assistant_message, requested_names = extracted
+                resolved_names = [name for name in requested_names if name in dynamic_registry]
+                if not resolved_names:
                     break
                 payload_messages = optimized_payload.setdefault("messages", [])
-                payload_messages.extend([
-                    assistant_message,
-                    {
-                        "role": "tool",
-                        "tool_call_id": assistant_message["tool_calls"][0]["id"],
-                        "content": json.dumps({"tool_name": requested_name, "loaded": True}),
-                    },
-                ])
-                optimized_payload["tools"] = [
-                    next(tool for tool in payload.get("tools", []) if tool.get("function", {}).get("name") == requested_name)
-                ]
+                payload_messages.append(assistant_message)
+                payload_messages.append({
+                    "role": "tool",
+                    "tool_call_id": assistant_message["tool_calls"][0]["id"],
+                    "content": json.dumps({"tool_names": resolved_names, "loaded": True}),
+                })
+                optimized_payload["tools"] = [dynamic_registry[name] for name in resolved_names]
                 body = json.dumps(optimized_payload, ensure_ascii=False, separators=(",", ":")).encode()
                 upstream = await send_upstream(request, path, headers, body)
                 response_body = await upstream.aread()

@@ -2,6 +2,11 @@
     "chat.tools.terminal.autoApprove": {
         ".venv/bin/pip": true,
         ".venv/bin/pytest": true,
-        ".venv/bin/python": true
+        ".venv/bin/python": true,
+        "git remote": true,
+        "/^python3 -m compileall -q proxy tests$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }

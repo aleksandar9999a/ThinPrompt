@@ -44,7 +44,7 @@ async def test_proxy_optimizes_json_and_preserves_response(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_proxy_resolves_get_tool_internally(monkeypatch):
+async def test_proxy_resolves_get_tools_internally(monkeypatch):
     requests = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -61,8 +61,8 @@ async def test_proxy_resolves_get_tool_internally(monkeypatch):
                                 "id": "call-1",
                                 "type": "function",
                                 "function": {
-                                    "name": "get_tool",
-                                    "arguments": '{"tool_name":"read_file"}',
+                                    "name": "get_tools",
+                                    "arguments": '{"tool_names":["read_file","other"]}',
                                 },
                             }],
                         },
@@ -89,7 +89,7 @@ async def test_proxy_resolves_get_tool_internally(monkeypatch):
 
         assert response.status_code == 200
         assert len(requests) == 2
-        assert [tool["function"]["name"] for tool in requests[0]["tools"]] == ["get_tool"]
-        assert [tool["function"]["name"] for tool in requests[1]["tools"]] == ["read_file"]
+        assert [tool["function"]["name"] for tool in requests[0]["tools"]] == ["get_tools"]
+        assert [tool["function"]["name"] for tool in requests[1]["tools"]] == ["read_file", "other"]
     finally:
         await app.state.client.aclose()

@@ -58,9 +58,9 @@ Set `PROXY_LOG_REQUESTS=true` temporarily to print the original and optimized re
 When `PROXY_DYNAMIC_TOOLS=true`, ThinPrompt receives the complete tool list from VS Code but initially sends the model only:
 
 - a short catalog of available tools;
-- an internal `get_tool` function.
+- an internal `get_tools` function that accepts a list of tool names.
 
-When the model requests a tool schema, ThinPrompt resolves it locally and retries the request with only that tool's full schema. The internal `get_tool` call is never exposed to VS Code. This can significantly reduce the prompt size while keeping real tool calls compatible with VS Code.
+When the model requests tool schemas, ThinPrompt resolves them locally and retries the request with only those tools' full schemas. The internal `get_tools` call is never exposed to VS Code. This can significantly reduce the prompt size while keeping real tool calls compatible with VS Code.
 
 ## Development
 
